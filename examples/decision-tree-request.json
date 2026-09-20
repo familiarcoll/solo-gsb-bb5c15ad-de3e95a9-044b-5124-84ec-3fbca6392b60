@@ -1,0 +1,43 @@
+{
+  "plasmid_length": 1000,
+  "min_visible_fragment": 50,
+  "band_resolution_tolerance": 20,
+  "enzymes": [
+    {
+      "name": "EcoRI",
+      "genotype_sites": {
+        "WT": [300, 900],
+        "m1": [300, 500],
+        "m2": [100, 700],
+        "m3": [300, 900]
+      }
+    },
+    {
+      "name": "BamHI",
+      "genotype_sites": {
+        "WT": [500],
+        "m1": [900],
+        "m2": [100, 800],
+        "m3": [500]
+      }
+    },
+    {
+      "name": "HindIII",
+      "genotype_sites": {
+        "WT": [700],
+        "m1": [100],
+        "m2": [500],
+        "m3": [700]
+      }
+    },
+    {
+      "name": "NruI",
+      "genotype_sites": {
+        "WT": [],
+        "m1": [],
+        "m2": [],
+        "m3": []
+      }
+    }
+  ]
+}

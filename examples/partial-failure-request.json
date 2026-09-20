@@ -1,0 +1,12 @@
+{
+  "plasmid_length": 1000,
+  "fragments": [
+    {"length": 200, "following_boundary": "B1"},
+    {"length": 300, "following_boundary": "B2"},
+    {"length": 100, "following_boundary": "B3"},
+    {"length": 400, "following_boundary": "B4"}
+  ],
+  "observed_bands": [201, 398, 400],
+  "band_match_tolerance": 10,
+  "max_failed_boundaries": 2
+}

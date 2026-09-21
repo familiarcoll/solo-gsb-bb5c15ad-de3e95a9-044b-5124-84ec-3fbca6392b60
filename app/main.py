@@ -28,9 +28,12 @@ from app.models import (
     PanelResponse,
     PartialFailureRequest,
     PartialFailureResponse,
+    ReplicateConsistencyRequest,
+    ReplicateConsistencyResponse,
 )
 from app.panel import build_panel
 from app.partial_failure import resolve_partial_failure
+from app.replicate_consistency import assess_replicate_consistency
 from app.validation import (
     DigestValidationError,
     validate_batch_identify_request,
@@ -39,10 +42,11 @@ from app.validation import (
     validate_mixture_request,
     validate_panel_request,
     validate_partial_failure_request,
+    validate_replicate_consistency_request,
     validate_request,
 )
 
-VERSION = "1.6.0"
+VERSION = "1.7.0"
 
 app = FastAPI(
     title="Circular DNA Double-Digest Discrimination Service",
@@ -60,7 +64,10 @@ app = FastAPI(
         "最小化最坏实验次数的自适应双酶切决策树（同深度依次取内部节点更少、"
         "酶对键字典序更小的方案）；还可枚举不超过上限的未切开边界子集，"
         "把失败边界两侧相邻片段在圆环上（含跨原点）合并后再做一对一条带匹配，"
-        "从异常凝胶反推最可能的部分酶切失败边界。"
+        "从异常凝胶反推最可能的部分酶切失败边界；还可对同一样本的若干命名观测泳道"
+        "做确定性的全局条带聚类（并列按长度与泳道序号破同分），以每簇中位长度形成"
+        "共识谱，逐泳道标记缺失、额外与低频条带，并按共识偏差与异常数给出稳定性评分，"
+        "结果与输入顺序无关。"
     ),
     version=VERSION,
 )
@@ -167,6 +174,19 @@ async def digest_decision_tree(req: DecisionTreeRequest) -> DecisionTreeResponse
 async def digest_partial_failure(req: PartialFailureRequest) -> PartialFailureResponse:
     validate_partial_failure_request(req)
     return resolve_partial_failure(req)
+
+
+@app.post(
+    "/api/v1/digest/replicate-consistency",
+    response_model=ReplicateConsistencyResponse,
+    tags=["digest"],
+    summary="同一样本多泳道重复实验的全局条带聚类与一致性稳定性评估",
+)
+async def digest_replicate_consistency(
+    req: ReplicateConsistencyRequest,
+) -> ReplicateConsistencyResponse:
+    validate_replicate_consistency_request(req)
+    return assess_replicate_consistency(req)
 
 
 if __name__ == "__main__":

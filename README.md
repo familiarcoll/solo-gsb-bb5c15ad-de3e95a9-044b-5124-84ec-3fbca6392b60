@@ -1,6 +1,6 @@
 # 环状 DNA 双酶切鉴别服务
 
-基于 FastAPI 的圆形（环状）DNA 双酶切鉴别服务，提供七个互补接口：
+基于 FastAPI 的圆形（环状）DNA 双酶切鉴别服务，提供八个互补接口：
 
 - **方案推荐**：客户端提交质粒长度、参考型与变异型的候选酶切位点、最小可见片段长度和条带分辨容差，服务枚举所有不同酶对，按圆环相邻切点计算两种样本的片段长度，将容差内的片段聚为同一条电泳条带，并推荐能够区分两种样本的酶对。
 - **样本鉴别**：客户端提交同一质粒参考型、变异型的预测条带长度和一次凝胶观测长度列表，服务在给定容差内做确定性的一对一最小代价匹配，分别计算两种样本的缺失条带、额外条带与总误差，判定观测样本为参考型、变异型或无法区分。
@@ -9,6 +9,7 @@
 - **批量盲样分配**：客户端提交若干**命名预测谱型**与若干**命名观测泳道**、条带匹配容差和单条分配允许的最大未匹配条带数，服务先复用鉴别接口的一对一条带匹配评估每条“谱型-泳道”边（未匹配数超阈值的边不可用），再在可用边上做**全局一对一分配**，依次最大化已分配泳道数、最小化未匹配总数、最小化总误差，并以泳道名排序后的谱型名序列字典序破同分，返回逐项匹配依据、未分配泳道与未使用谱型。
 - **自适应决策树**：客户端提交质粒长度、可见阈值、分辨容差及各基因型在各酶上的切点，服务为每个酶对 × 每个基因型复用同一套圆环酶切与聚带规则生成**规范化条带签名**，先按全部酶对上的签名向量合并永远无法区分的基因型，再以“候选等价类集合 + 剩余酶对”为状态做**记忆化极小化极大搜索**，精确生成最小化最坏实验次数的自适应决策树（同深度依次取内部节点更少、酶对键字典序更小的方案，忽略不能拆分当前集合的酶对）。
 - **部分酶切失败反推**：客户端提交质粒长度、按圆环顺序排列的理论片段（每段长度及其后边界名称）、一次异常凝胶的观测条带、匹配容差与最大失败边界数，服务枚举失败边界数不超过上限的**全部边界子集**；失败（未切开）边界会合并其相邻片段（正确处理连续失败与首尾**跨原点**合并），再复用鉴别接口的一对一条带匹配，按未匹配条带数、总误差、失败边界数、边界名序列依次选出**唯一诊断**，返回合并后预测条带、逐条匹配与失败边界。
+- **凝胶重复一致性**：客户端提交同一样本的若干**命名观测泳道**、条带匹配容差与最少出现次数，服务把全部泳道的条带按（长度、泳道序号）排序做确定性的**全局单连接聚类**，以每簇**中位长度**形成共识谱，逐泳道标记**缺失、额外与低频**条带，并按**共识偏差与异常数**给出稳定性评分，结果与输入顺序无关。
 
 **核心功能为纯本地数学计算，不依赖数据库、缓存或任何外部服务。**
 
@@ -51,6 +52,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 | 批量盲样分配 | POST | `http://localhost:8000/api/v1/digest/batch-identify` |
 | 自适应决策树 | POST | `http://localhost:8000/api/v1/digest/decision-tree` |
 | 部分酶切失败反推 | POST | `http://localhost:8000/api/v1/digest/partial-failure` |
+| 凝胶重复一致性评估 | POST | `http://localhost:8000/api/v1/digest/replicate-consistency` |
 | 交互式 API 文档（Swagger） | GET | `http://localhost:8000/docs` |
 | OpenAPI Schema | GET | `http://localhost:8000/openapi.json` |
 
@@ -58,7 +60,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ```bash
 curl http://localhost:8000/health
-# {"status":"ok","service":"circular-dna-digest","version":"1.6.0"}
+# {"status":"ok","service":"circular-dna-digest","version":"1.7.0"}
 ```
 
 ---
@@ -81,6 +83,7 @@ curl http://localhost:8000/health
 | `MAX_DECISION_GENOTYPES` | `12` | decision-tree 接口允许的最大基因型数（极小化极大搜索状态随基因型数增长） | 编辑 `environment` |
 | `MAX_DECISION_ENZYMES` | `10` | decision-tree 接口允许的最大酶数量（酶对数为 C(n,2)，独立于 `MAX_ENZYMES`） | 编辑 `environment` |
 | `MAX_PARTIAL_FAILURE_BOUNDARIES` | `16` | partial-failure 接口允许的最大理论片段（边界）数（需枚举至多 `max_failed_boundaries` 规模的全部边界子集，最坏 2ⁿ） | 编辑 `environment` |
+| `MAX_REPLICATE_LANES` | `32` | replicate-consistency 接口允许的最大泳道数（全局聚类规模为各泳道条带数之和） | 编辑 `environment` |
 
 ---
 
@@ -426,6 +429,41 @@ curl -X POST http://localhost:8000/api/v1/digest/partial-failure \
 - `evaluated_subset_count`：实际评估的子集数，等于 `Σ C(n, k)`（k = 0..min(上限, n)）。
 - `selection_reason`：中文选定依据，说明四级比较次序如何决定唯一结果。
 
+### 凝胶重复一致性评估（POST `/api/v1/digest/replicate-consistency`）
+
+#### 请求体（JSON）
+
+| 字段 | 类型 | 约束 |
+| --- | --- | --- |
+| `lanes` | array | 同一样本的命名观测泳道列表，至少 1 条，泳道数不超过 `MAX_REPLICATE_LANES`（默认 32） |
+| `lanes[].name` | string | 泳道名称，不可重复、不可为空白 |
+| `lanes[].observed_bands` | number[] | 该泳道的凝胶观测条带长度（bp），每条 ≥ 0，**至少 1 条**，条带数不超过 `MAX_BANDS`（默认 512） |
+| `band_match_tolerance` | number | ≥ 0，条带匹配容差（bp）：全局聚类时长度差不超过该值的相邻条带归入同一簇 |
+| `min_occurrences` | int | ≥ 1 且 ≤ 泳道总数；簇内不同泳道数达到该值才视为稳定簇 |
+
+请求示例见 [`examples/replicate-consistency-request.json`](examples/replicate-consistency-request.json)：
+
+```bash
+curl -X POST http://localhost:8000/api/v1/digest/replicate-consistency \
+  -H 'Content-Type: application/json' \
+  -d @examples/replicate-consistency-request.json
+```
+
+#### 算法说明（重复一致性）
+
+1. **全局条带聚类**：泳道先按名称字典序编号（泳道序号），全部泳道的观测条带汇总后按 **（长度、泳道序号）** 升序排序——并列按长度、再按泳道序号破同分——做单连接聚类：相邻条带长度差 ≤ 容差即归入同一簇（链式可传递）。排序键只依赖条带长度与泳道名，聚类结果与输入提交顺序无关。
+2. **共识谱**：每簇以其全部成员条带长度的**中位数**（偶数个取中间两值均值，保留两位小数）作为代表长度；全部簇的中位长度升序构成共识谱 `consensus_bands`。簇内**不同泳道数**为该条带的出现次数：达到 `min_occurrences` 的簇为**稳定簇**，否则为**低频簇**。
+3. **逐泳道标记**：泳道在同一簇内有多条条带时，距簇中位长度最近（并列取较短者）的一条为**代表条带**，其余计为**额外条带**；该泳道未参与的稳定簇计为**缺失条带**（取簇中位长度）；代表条带落入低频簇计为**低频条带**。
+4. **共识偏差与稳定性评分**：共识偏差 = 该泳道各簇代表条带与簇中位长度差绝对值之和（bp）；异常数 = 缺失 + 额外 + 低频；`稳定性评分 = 100 / (1 + 异常数 + 共识偏差 / (容差 + 1))`（保留两位小数，满分 100，共识偏差以容差为尺度折算后与异常数同量纲相加）。
+
+#### 响应要点（重复一致性）
+
+- `consensus_bands`：共识谱（每簇中位长度，升序）；`cluster_count` / `stable_cluster_count` / `low_frequency_cluster_count`：簇总数、稳定簇数与低频簇数。
+- `clusters`：全部簇的组成依据（按中位长度升序），每簇含 `median_length` / `min_length` / `max_length` / `band_count` / `lane_count`（出现次数）/ `is_low_frequency` / `lanes`（字典序）/ `members`（按（长度、泳道序号）升序）。
+- `lanes`：逐泳道评估（按泳道名字典序），每条泳道含 `missing_bands` / `extra_bands` / `low_frequency_bands` 及各自计数、`anomaly_count`、`consensus_deviation`、`stability_score` 与中文依据；`band_count = matched_band_count + extra_count` 恒成立。
+- `most_stable_lanes`：稳定性评分最高的泳道名（并列时全部列出，按字典序）。
+- `stability_reason`：中文评估依据，说明全局聚类、共识谱、异常判定与评分公式；全部指标可由响应字段复算。
+
 ### 拒绝条件（HTTP 422）
 
 以下输入问题整体拒绝，返回统一结构 `{"code":"validation_failed","errors":[...]}`，一次性报告全部错误：
@@ -483,6 +521,14 @@ curl -X POST http://localhost:8000/api/v1/digest/partial-failure \
 - `max_failed_boundaries` 缺失、非整数、为负，或**超过片段（边界）总数**；
 - 观测条带列表为空、任一条带长度为负、容差为负 / 缺失 / 非数值；观测列表超过 `MAX_BANDS` 上限。
 
+凝胶重复一致性评估接口（`/api/v1/digest/replicate-consistency`）：
+
+- 泳道列表为空、泳道名**重复**或为空白；
+- 任一泳道的 `observed_bands` 为空，或任一条带长度为负；
+- 泳道数超过 `MAX_REPLICATE_LANES`（默认 32）上限，或任一泳道条带数超过 `MAX_BANDS` 上限；
+- `band_match_tolerance` 为负 / 缺失 / 非数值；
+- `min_occurrences` 缺失、非整数、< 1，或**超过泳道总数**。
+
 注意：推荐接口中切点不足两个属于**酶对级别**的拒绝（记录在 `rejected_pairs`，HTTP 200），而非请求级别错误；面板接口中某变异型无可用酶对时同样返回 HTTP 200（列入 `uncovered_variants`，不返回部分面板）；批量盲样分配接口中所有候选边都超过未匹配阈值时同样返回 HTTP 200（`assignments` 为空、全部泳道列入 `unassigned_lanes`）；决策树接口中某基因型在某酶对上切点不足 2 个或某酶对对全部基因型签名相同，均属于**酶对级别**结果（空签名 / 列入 `non_discriminating_pairs`，HTTP 200），永远无法区分的基因型列入 `indistinguishable_groups`。
 
 ---
@@ -492,7 +538,7 @@ curl -X POST http://localhost:8000/api/v1/digest/partial-failure \
 ```
 .
 ├── app/
-│   ├── main.py          # FastAPI 入口：健康检查、推荐/鉴别/面板/混合/批量分配/决策树/部分失败反推路由、统一 422 处理
+│   ├── main.py          # FastAPI 入口：健康检查、推荐/鉴别/面板/混合/批量分配/决策树/部分失败反推/重复一致性路由、统一 422 处理
 │   ├── models.py        # 请求/响应 Pydantic 模型
 │   ├── validation.py    # 越界、重复位点、名称一致性、条带/候选/基因型规模等语义校验
 │   ├── digest.py        # 圆环片段、条带聚类、酶对枚举与排序（纯函数）
@@ -502,6 +548,7 @@ curl -X POST http://localhost:8000/api/v1/digest/partial-failure \
 │   ├── batch_identify.py # 批量盲样谱型-泳道边评估与全局一对一最小费用最大流分配（纯函数）
 │   ├── decision_tree.py # 规范化条带签名、不可区分合并与记忆化极小化极大决策树（纯函数）
 │   ├── partial_failure.py # 失败边界的圆环片段合并（含连续失败/跨原点）、子集枚举与唯一诊断选定（纯函数）
+│   ├── replicate_consistency.py # 多泳道全局条带聚类、共识谱与逐泳道缺失/额外/低频标记及稳定性评分（纯函数）
 │   └── config.py        # 环境变量配置（均有默认值）
 ├── tests/               # pytest 单元 + API 端到端测试
 ├── examples/request.json
@@ -511,6 +558,7 @@ curl -X POST http://localhost:8000/api/v1/digest/partial-failure \
 ├── examples/batch-identify-request.json
 ├── examples/decision-tree-request.json
 ├── examples/partial-failure-request.json
+├── examples/replicate-consistency-request.json
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt

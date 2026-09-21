@@ -36,5 +36,8 @@ class Settings:
         os.getenv("MAX_PARTIAL_FAILURE_BOUNDARIES", "16")
     )
 
+    # replicate-consistency 接口允许的最大泳道数：全局聚类规模为各泳道条带数之和
+    MAX_REPLICATE_LANES: int = int(os.getenv("MAX_REPLICATE_LANES", "32"))
+
 
 settings = Settings()

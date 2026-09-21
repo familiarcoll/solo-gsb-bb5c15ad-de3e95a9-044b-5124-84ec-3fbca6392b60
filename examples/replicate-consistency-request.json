@@ -1,0 +1,18 @@
+{
+  "lanes": [
+    {
+      "name": "lane-1",
+      "observed_bands": [100, 200, 300]
+    },
+    {
+      "name": "lane-2",
+      "observed_bands": [102, 200, 310]
+    },
+    {
+      "name": "lane-3",
+      "observed_bands": [98, 210]
+    }
+  ],
+  "band_match_tolerance": 10,
+  "min_occurrences": 2
+}

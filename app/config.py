@@ -36,5 +36,9 @@ class Settings:
         os.getenv("MAX_PARTIAL_FAILURE_BOUNDARIES", "16")
     )
 
+    # replicate-consistency 接口允许的最大观测泳道数：全局聚类规模为
+    # 泳道数 × 每泳道条带数（每条带列表仍受 MAX_BANDS 约束）
+    MAX_REPLICATE_LANES: int = int(os.getenv("MAX_REPLICATE_LANES", "32"))
+
 
 settings = Settings()

@@ -26,6 +26,8 @@ services:
       MAX_DECISION_ENZYMES: "10"
       # partial-failure 接口允许的最大理论片段（边界）数（枚举至多该规模的全部边界子集）
       MAX_PARTIAL_FAILURE_BOUNDARIES: "16"
+      # replicate-consistency 接口允许的最大观测泳道数
+      MAX_REPLICATE_LANES: "32"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import os,sys,urllib.request; port=os.getenv('APP_PORT','8000'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=3).status==200 else 1)"]

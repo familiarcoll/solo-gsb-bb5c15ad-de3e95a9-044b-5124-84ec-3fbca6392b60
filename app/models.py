@@ -504,3 +504,101 @@ class PartialFailureResponse(BaseModel):
     selection_reason: str = Field(
         description="中文选定依据：未匹配条带数、总误差、失败边界数及边界名序列如何决定唯一结果"
     )
+
+
+# ------------------------------------------- 重复实验一致性（replicate-consistency）模型
+
+class ReplicateLaneInput(BaseModel):
+    name: str = Field(..., min_length=1, description="观测泳道名称（如凝胶道编号）")
+    observed_bands: list[NonNegativeBand] = Field(
+        ..., min_length=1, description="该泳道的凝胶观测条带长度列表（bp），至少 1 条"
+    )
+
+
+class ReplicateConsistencyRequest(BaseModel):
+    lanes: list[ReplicateLaneInput] = Field(
+        ..., min_length=1,
+        description="同一样本的命名观测泳道列表，名称不可重复，至少 1 个",
+    )
+    band_match_tolerance: NonNegativeBand = Field(
+        ..., description="条带匹配容差（bp）：全局聚类时相邻条带长度差不超过该值即归入同一簇"
+    )
+    min_occurrences: int = Field(
+        ..., ge=1,
+        description="最少出现次数：贡献泳道数达到该值的簇才进入共识谱，否则为低频簇；"
+                    "不得超过泳道数量",
+    )
+
+
+class ReplicateClusterMemberOut(BaseModel):
+    lane: str = Field(description="该条带来源的泳道名")
+    length: float = Field(description="该观测条带长度（bp）")
+
+
+class ReplicateClusterOut(BaseModel):
+    cluster_id: int = Field(description="簇编号，按中位长度升序，从 1 开始")
+    median_length: float = Field(description="簇内全部条带长度的中位数（bp，共识条带长度）")
+    min_length: float
+    max_length: float
+    member_count: int = Field(description="簇内条带总数")
+    occurrence_count: int = Field(description="出现次数：贡献该簇的不同泳道数")
+    in_consensus: bool = Field(
+        description="出现次数是否达到最少出现次数而进入共识谱（否则为低频簇）"
+    )
+    lanes: list[str] = Field(description="贡献该簇的泳道名，按字典序")
+    members: list[ReplicateClusterMemberOut] = Field(
+        description="簇内全部条带，按（长度、泳道名）升序"
+    )
+
+
+class ReplicateLaneConsistencyOut(BaseModel):
+    lane: str = Field(description="泳道名；lanes 按泳道名字典序排列")
+    band_count: int = Field(description="该泳道的观测条带数")
+    matched_consensus_count: int = Field(description="该泳道命中（贡献代表条带）的共识条带数")
+    missing_count: int = Field(description="缺失条带数：该泳道未覆盖的共识条带")
+    missing_bands: list[float] = Field(
+        description="缺失条带：该泳道未覆盖的共识条带中位长度（bp），升序"
+    )
+    extra_count: int = Field(description="额外条带数：共识簇内超出代表条带的本泳道条带")
+    extra_bands: list[float] = Field(
+        description="额外条带：共识簇内除代表条带外的本泳道条带长度（bp），升序"
+    )
+    low_frequency_count: int = Field(description="低频条带数：落入低频簇的本泳道条带")
+    low_frequency_bands: list[float] = Field(
+        description="低频条带：落入低频簇的本泳道条带长度（bp），升序"
+    )
+    anomaly_count: int = Field(description="异常数：缺失 + 额外 + 低频条带数")
+    consensus_deviation: float = Field(
+        description="共识偏差：各命中共识簇的代表条带与中位长度差之和（bp）"
+    )
+    mean_deviation: float = Field(
+        description="平均共识偏差（bp）：共识偏差 ÷ 命中共识条带数；未命中任何共识条带时为 0"
+    )
+    stability_score: float = Field(
+        description="稳定性评分（0~100）：100 × 命中共识条带数 ÷（共识条带数 + 额外条带数"
+                    " + 低频条带数）÷（1 + 平均共识偏差）"
+    )
+    description: str = Field(description="中文一致性依据说明")
+
+
+class ReplicateConsistencyResponse(BaseModel):
+    band_match_tolerance: float
+    min_occurrences: int
+    lane_count: int
+    total_band_count: int = Field(description="全部泳道的观测条带总数")
+    cluster_count: int = Field(description="全局条带簇总数（含低频簇）")
+    consensus_band_count: int = Field(description="共识条带数：进入共识谱的簇数")
+    low_frequency_cluster_count: int = Field(description="低频簇数：出现次数不足的簇数")
+    consensus_profile: list[float] = Field(
+        description="共识谱：各共识簇的中位长度（bp），升序"
+    )
+    clusters: list[ReplicateClusterOut] = Field(
+        description="全部全局簇（含低频簇）的明细，按中位长度升序"
+    )
+    lanes: list[ReplicateLaneConsistencyOut] = Field(
+        description="逐泳道一致性评估，按泳道名字典序排列"
+    )
+    mean_stability_score: float = Field(
+        description="整体稳定性评分：全部泳道稳定性评分的均值（0~100）"
+    )
+    score_reason: str = Field(description="中文评分依据说明")

@@ -14,6 +14,7 @@ from app.models import (
     MixtureRequest,
     PanelRequest,
     PartialFailureRequest,
+    ReplicateConsistencyRequest,
 )
 
 
@@ -425,6 +426,61 @@ def validate_partial_failure_request(req: PartialFailureRequest) -> PartialFailu
             ["observed_bands"],
             f"条带数量（{len(req.observed_bands)}）超过允许上限 {settings.MAX_BANDS}",
             "too_many_bands",
+        ))
+
+    if errors:
+        raise DigestValidationError(errors)
+    return req
+
+
+def validate_replicate_consistency_request(
+    req: ReplicateConsistencyRequest,
+) -> ReplicateConsistencyRequest:
+    """replicate-consistency 接口的语义校验：泳道规模/重名/空白名、条带规模与出现次数上限。
+
+    泳道列表为空、条带为空 / 为负、容差非法、``min_occurrences`` 缺失或小于 1
+    等基础字段约束由 Pydantic 模型直接拦截，与此处一样输出统一结构的 422 响应。
+    """
+    errors: list[dict] = []
+    lane_count = len(req.lanes)
+
+    if lane_count > settings.MAX_REPLICATE_LANES:
+        errors.append(_err(
+            ["lanes"],
+            f"泳道数量（{lane_count}）超过允许上限 {settings.MAX_REPLICATE_LANES}",
+            "too_many_replicate_lanes",
+        ))
+
+    seen_names: set[str] = set()
+    for i, lane in enumerate(req.lanes):
+        name = lane.name
+        if not name.strip():
+            errors.append(_err(
+                ["lanes", i, "name"],
+                "泳道名称不能为空白",
+                "invalid_lane_name",
+            ))
+        if name in seen_names:
+            errors.append(_err(
+                ["lanes", i, "name"],
+                f"泳道名称重复：{name}",
+                "duplicate_lane_name",
+            ))
+        seen_names.add(name)
+        if len(lane.observed_bands) > settings.MAX_BANDS:
+            errors.append(_err(
+                ["lanes", i, "observed_bands"],
+                f"泳道 {name} 的条带数量（{len(lane.observed_bands)}）"
+                f"超过允许上限 {settings.MAX_BANDS}",
+                "too_many_bands",
+            ))
+
+    # 最少出现次数必须落在 [1, 泳道数]：为 0 / 负数 / 非整数由 Pydantic 拦截
+    if req.min_occurrences > lane_count:
+        errors.append(_err(
+            ["min_occurrences"],
+            f"最少出现次数（{req.min_occurrences}）不能超过泳道数量（{lane_count}）",
+            "min_occurrences_too_large",
         ))
 
     if errors:
